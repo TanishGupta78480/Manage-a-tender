@@ -227,6 +227,8 @@ export default function AnalyseOfferPage() {
   }, [localOffers, selectedTenderId, tenderSkus, tenderSuppliers])
 
   // Build round evolution from actual tenderOffers data
+  // totalInvestment = annual spend for the round (costPrice * weeklyVolume * 52 summed across SKUs)
+  // Lower = better (more savings for the buyer), so bestRound = lowest totalInvestment
   const roundEvolutionData = useMemo((): (SupplierRoundEvolution & { isCurrent: boolean; hasOffer: boolean })[] => {
     return tenderSuppliers.map((supplier, sIdx) => {
       const isCurrent = sIdx === 0
@@ -243,21 +245,20 @@ export default function AnalyseOfferPage() {
         }
       }
 
-      // Group offers by round and compute total investment per round
-      const roundMap = new Map<number, number>()
-      supplierOffers.forEach((o) => {
-        const investment = (o as ExtendedOffer).fixedInvestment || 0
-        const promo = (o as ExtendedOffer).promotionalInvestment || 0
-        const other = (o as ExtendedOffer).otherInvestment || 0
-        const total = investment + promo + other
-        roundMap.set(o.round, (roundMap.get(o.round) || 0) + total)
-      })
-
-      const sortedRoundNums = Array.from(roundMap.keys()).sort((a, b) => a - b)
+      // Group offers by round and compute total annual spend per round
+      const roundNums = Array.from(new Set(supplierOffers.map((o) => o.round))).sort((a, b) => a - b)
       const rounds: RoundData[] = []
 
-      sortedRoundNums.forEach((roundNum, i) => {
-        const value = roundMap.get(roundNum) || 0
+      roundNums.forEach((roundNum, i) => {
+        const roundOffers = supplierOffers.filter((o) => o.round === roundNum)
+        // Annual spend = sum of (costPrice * weeklyVolume * 52) for each offered SKU
+        let annualSpend = 0
+        tenderSkus.forEach((sku) => {
+          const skuOffer = roundOffers.find((o) => o.skuId === sku.id)
+          const price = skuOffer ? skuOffer.costPrice : sku.currentCostPrice
+          annualSpend += price * sku.weeklyVolume * 52
+        })
+        const value = Math.round(annualSpend)
         const prev = i > 0 ? rounds[i - 1].totalInvestment : value
         const change = value - prev
         const pct = prev !== 0 ? (change / prev) * 100 : 0
@@ -277,7 +278,7 @@ export default function AnalyseOfferPage() {
         hasOffer,
       }
     })
-  }, [tenderSuppliers, tenderOffers])
+  }, [tenderSuppliers, tenderOffers, tenderSkus])
 
   // Compute max rounds across all suppliers for the evolution table header
   const maxRounds = useMemo(() => {
@@ -588,12 +589,12 @@ export default function AnalyseOfferPage() {
                           // Use functional update to compute nextRound from the latest state
                           setLocalOffers((prev) => {
                             const allTenderOffers = prev.filter((o) => o.tenderId === selectedTenderId)
-                            const globalMaxRound = allTenderOffers.length > 0
-                              ? Math.max(...allTenderOffers.map((o) => o.round))
-                              : 0
-                            const nextRound = globalMaxRound + 1
-                            // Get this supplier's existing offers for price improvement baseline
+                            // Use per-supplier max round so rounds increment naturally for each supplier
                             const supplierOffers = allTenderOffers.filter((o) => o.supplierId === randomSupplier.id)
+                            const supplierMaxRound = supplierOffers.length > 0
+                              ? Math.max(...supplierOffers.map((o) => o.round))
+                              : 0
+                            const nextRound = supplierMaxRound + 1
                             // Create offers for all tender SKUs with slightly improved prices
                             const newOffers: ExtendedOffer[] = tenderSkus.map((sku) => {
                               const prevOffers = supplierOffers.filter((o) => o.skuId === sku.id)
