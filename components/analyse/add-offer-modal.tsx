@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useState, useCallback, useMemo } from "react"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -941,7 +941,8 @@ export function AddOfferModal({ open, onOpenChange, onSubmit }: AddOfferModalPro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="!max-w-[80vw] !w-[80vw] h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+      <DialogContent aria-describedby={undefined} showCloseButton={false} className="!max-w-[80vw] !w-[80vw] h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+        <DialogTitle className="sr-only">Add Supplier Offer</DialogTitle>
         {/* Sticky Header */}
         <div className="shrink-0 border-b border-gray-200 bg-white">
           <div className="px-6 pt-5 pb-3">

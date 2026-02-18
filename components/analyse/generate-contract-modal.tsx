@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useCallback } from "react"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -237,7 +237,8 @@ export function GenerateContractModal({ open, onClose, supplier }: GenerateContr
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] p-0 gap-0 flex flex-col overflow-hidden [&>button]:hidden">
+      <DialogContent aria-describedby={undefined} className="max-w-2xl max-h-[90vh] p-0 gap-0 flex flex-col overflow-hidden [&>button]:hidden">
+        <DialogTitle className="sr-only">Generate Contract Documents</DialogTitle>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white shrink-0">
           <div>
