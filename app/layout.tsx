@@ -2,7 +2,8 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
-import { DashboardHeader } from "@/components/dashboard-header"
+import { DashboardHeaderWrapper } from "@/components/dashboard-header-wrapper"
+import { Toaster } from "sonner"
 import "./globals.css"
 
 const _geist = Geist({ subsets: ["latin"] })
@@ -16,15 +17,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode
-}>) {
+}) {
   return (
     <html lang="en">
       <body className={`font-sans antialiased`}>
-        <DashboardHeader />
+        <DashboardHeaderWrapper />
         {children}
         <Analytics />
+        <Toaster position="top-right" richColors />
       </body>
     </html>
   )

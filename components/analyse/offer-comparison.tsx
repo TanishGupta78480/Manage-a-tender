@@ -274,12 +274,16 @@ export function OfferComparison({ suppliers, skus, tenderOffers, supplierRounds,
     const data: SupplierComparisonData[] = suppliers.map((supplier, idx) => {
       const supplierOffers = tenderOffers.filter((o) => o.supplierId === supplier.id)
 
-      // Calculate annual spend per-SKU using best offer price per SKU, falling back to current price
+      // Calculate annual spend per-SKU using latest round offer price per SKU, falling back to current price
+      const hasOffers = supplierOffers.length > 0
+      const latestRound = hasOffers ? Math.max(...supplierOffers.map((o) => o.round)) : 0
+      const latestRoundOffers = supplierOffers.filter((o) => o.round === latestRound)
+
       let annualSpend = 0
       let weightedPriceSum = 0
       let weightedVolumeSum = 0
       skus.forEach((sku) => {
-        const skuOffer = supplierOffers.find((o) => o.skuId === sku.id)
+        const skuOffer = latestRoundOffers.find((o) => o.skuId === sku.id)
         const price = skuOffer ? skuOffer.costPrice : sku.currentCostPrice * (1 - 0.02 * (idx + 1))
         const annualVol = sku.weeklyVolume * 52
         annualSpend += price * annualVol
@@ -292,9 +296,7 @@ export function OfferComparison({ suppliers, skus, tenderOffers, supplierRounds,
       // --- Derive realistic scores from actual offer data & supplier profile ---
       const hasHighRating = supplier.reliabilityScore >= 93
       const hasBrcA = supplier.accreditation?.brcGrade === "A" || supplier.accreditation?.brcGrade === "AA"
-      const hasOffers = supplierOffers.length > 0
-      const latestRound = hasOffers ? Math.max(...supplierOffers.map((o) => o.round)) : 0
-      const latestOffers = supplierOffers.filter((o) => o.round === latestRound)
+      const latestOffers = latestRoundOffers
 
       // Commercial score (1-5): based on absolute saving amount relative to baseline
       // This score feeds the summary view. The overall score uses relative savings.

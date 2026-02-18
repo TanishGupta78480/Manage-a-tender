@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useState, useCallback, useMemo } from "react"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -104,7 +104,7 @@ interface SkuLineItem {
 interface AddOfferModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSubmit: (data: { qualification: SupplierQualification; skus: SkuLineItem[] }) => void
+  onSubmit: (data: { qualification: SupplierQualification; skus: SkuLineItem[]; investment: SupplierInvestment }) => void
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -353,7 +353,7 @@ export function AddOfferModal({ open, onOpenChange, onSubmit }: AddOfferModalPro
   }
 
   const handleSubmit = () => {
-    onSubmit({ qualification, skus: skuItems })
+    onSubmit({ qualification, skus: skuItems, investment })
     onOpenChange(false)
     resetForm()
   }
@@ -390,6 +390,8 @@ export function AddOfferModal({ open, onOpenChange, onSubmit }: AddOfferModalPro
     setIsDragging(false)
     const file = e.dataTransfer.files[0]
     if (file) {
+      const ext = file.name.split(".").pop()?.toLowerCase()
+      if (ext !== "xlsx" && ext !== "xls") return
       setUploadedFile(file)
       processFile(file)
     }
@@ -398,6 +400,8 @@ export function AddOfferModal({ open, onOpenChange, onSubmit }: AddOfferModalPro
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      const ext = file.name.split(".").pop()?.toLowerCase()
+      if (ext !== "xlsx" && ext !== "xls") return
       setUploadedFile(file)
       processFile(file)
     }
@@ -917,7 +921,7 @@ export function AddOfferModal({ open, onOpenChange, onSubmit }: AddOfferModalPro
           <div className="space-y-4">
             <FileUp className="h-12 w-12 mx-auto text-muted-foreground/40" />
             <div>
-              <p className="font-medium text-foreground">Drop a PDF or Excel file here</p>
+              <p className="font-medium text-foreground">Drop an Excel file here</p>
               <p className="text-sm text-muted-foreground mt-1">or click to browse your files</p>
             </div>
             <Button variant="outline" size="sm" className="gap-2" onClick={() => document.getElementById("file-upload-input")?.click()}>
@@ -927,7 +931,7 @@ export function AddOfferModal({ open, onOpenChange, onSubmit }: AddOfferModalPro
             <input
               id="file-upload-input"
               type="file"
-              accept=".pdf,.xlsx,.xls,.csv"
+              accept=".xlsx,.xls"
               onChange={handleFileSelect}
               className="hidden"
             />
@@ -941,7 +945,8 @@ export function AddOfferModal({ open, onOpenChange, onSubmit }: AddOfferModalPro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="!max-w-[80vw] !w-[80vw] h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+      <DialogContent aria-describedby={undefined} showCloseButton={false} className="!max-w-[80vw] !w-[80vw] h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+        <DialogTitle className="sr-only">Add Supplier Offer</DialogTitle>
         {/* Sticky Header */}
         <div className="shrink-0 border-b border-gray-200 bg-white">
           <div className="px-6 pt-5 pb-3">

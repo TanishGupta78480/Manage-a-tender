@@ -35,6 +35,7 @@ export function DashboardHeader() {
                   width={36}
                   height={36}
                   className="object-contain brightness-0 invert"
+                  style={{ width: "auto", height: "auto" }}
                   priority
                 />
               </Link>
