@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { DashboardHeaderWrapper } from "@/components/dashboard-header-wrapper"
+import { Toaster } from "sonner"
 import "./globals.css"
 
 const _geist = Geist({ subsets: ["latin"] })
@@ -25,6 +26,7 @@ export default function RootLayout({
         <DashboardHeaderWrapper />
         {children}
         <Analytics />
+        <Toaster position="top-right" richColors />
       </body>
     </html>
   )

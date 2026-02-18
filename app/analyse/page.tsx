@@ -30,6 +30,7 @@ import {
   ClipboardCheck,
 } from "lucide-react"
 import Link from "next/link"
+import { toast } from "sonner"
 import { tenders, suppliers, skus, offers, type Offer, calculateSupplierScore } from "@/lib/data"
 import { WorkflowStepIndicator } from "@/components/workflow-step"
 
@@ -330,6 +331,9 @@ export default function AnalyseOfferPage() {
       }
     })
     setLocalOffers([...localOffers, ...newOffers])
+    toast.success("New offer added", {
+      description: `${newOffers.length} offer${newOffers.length > 1 ? "s" : ""} added manually.`,
+    })
   }
 
   const formatCurrency = (value: number) => {
@@ -611,6 +615,9 @@ export default function AnalyseOfferPage() {
                             }
                           })
                           setLocalOffers((prev) => [...prev, ...newOffers])
+                          toast.success("New offer added", {
+                            description: `Round ${nextRound} offer from ${randomSupplier.name} for ${newOffers.length} SKU${newOffers.length > 1 ? "s" : ""} has been added.`,
+                          })
                         }
                         e.target.value = ""
                       }
