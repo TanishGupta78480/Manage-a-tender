@@ -104,7 +104,7 @@ interface SkuLineItem {
 interface AddOfferModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSubmit: (data: { qualification: SupplierQualification; skus: SkuLineItem[] }) => void
+  onSubmit: (data: { qualification: SupplierQualification; skus: SkuLineItem[]; investment: SupplierInvestment }) => void
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -353,7 +353,7 @@ export function AddOfferModal({ open, onOpenChange, onSubmit }: AddOfferModalPro
   }
 
   const handleSubmit = () => {
-    onSubmit({ qualification, skus: skuItems })
+    onSubmit({ qualification, skus: skuItems, investment })
     onOpenChange(false)
     resetForm()
   }

@@ -314,38 +314,86 @@ export default function AnalyseOfferPage() {
     return best
   }, [tenderSuppliers, tenderSkus, tenderOffers])
 
-  const handleOfferSubmit = (data: { qualification: any; skus: any[] }) => {
-    // In a real app, this would process and store the submitted offer data
-    // For now, we add dummy offers based on the submitted SKUs
-    const newOffers = data.skus.map((sku) => {
-      const randomSupplier = tenderSuppliers[Math.floor(Math.random() * tenderSuppliers.length)]
-      const randomSku = tenderSkus[Math.floor(Math.random() * tenderSkus.length)]
-      return {
-        id: `OFF${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-        tenderId: selectedTenderId,
-        supplierId: randomSupplier?.id || "",
-        skuId: randomSku?.id || "",
-        round: 1,
-        submittedDate: new Date().toISOString().split("T")[0],
-        costPrice: Number(sku.unitPriceDDP) || 1.0,
-        costPriceSaving: 5,
-        additionalFunding: 0,
-        promotionChange: "same" as const,
-        promotionWeeks: 0,
-        deliveryTerms: "delivered" as const,
-        deliveryFrequency: sku.deliveryFrequency || "Weekly",
-        paymentDays: 30,
-        specSame: true,
-        supplierAttractivenessScore: 75,
-        overallScore: 70,
-        fixedInvestment: 0,
-        promotionalInvestment: 0,
-        otherInvestment: 0,
-      }
-    })
-    setLocalOffers([...localOffers, ...newOffers])
-    toast.success("New offer added", {
-      description: `${newOffers.length} offer${newOffers.length > 1 ? "s" : ""} added manually.`,
+  const handleOfferSubmit = (data: { qualification: any; skus: any[]; investment?: any }) => {
+    // Match supplier by display name from the form, or fall back to first supplier
+    const supplierName = (data.qualification?.supplierDisplayName || "").trim().toLowerCase()
+    const matchedSupplier = tenderSuppliers.find(
+      (s) => s.name.toLowerCase() === supplierName
+    ) || tenderSuppliers.find(
+      (s) => s.name.toLowerCase().includes(supplierName) || supplierName.includes(s.name.toLowerCase())
+    )
+
+    if (!matchedSupplier || tenderSkus.length === 0) {
+      toast.error("Could not match supplier", {
+        description: "Please enter a supplier name that matches one of the tender suppliers.",
+      })
+      return
+    }
+
+    // Use functional update to get correct round from latest state
+    setLocalOffers((prev) => {
+      const supplierOffers = prev.filter(
+        (o) => o.tenderId === selectedTenderId && o.supplierId === matchedSupplier.id
+      )
+      const supplierMaxRound = supplierOffers.length > 0
+        ? Math.max(...supplierOffers.map((o) => o.round))
+        : 0
+      const nextRound = supplierMaxRound + 1
+
+      // Parse investment values from form
+      const fixedInv = Number(data.investment?.fixedInvestment) || 0
+      const promoInv = Number(data.investment?.promotionalInvestment) || 0
+      const otherInv = Number(data.investment?.otherInvestment) || 0
+      const totalFunding = fixedInv + promoInv + otherInv
+
+      // Parse payment days from form payment terms (e.g. "Net 30" -> 30)
+      const paymentTermsStr = data.skus[0]?.paymentTerms || ""
+      const paymentDaysMatch = paymentTermsStr.match(/\d+/)
+      const paymentDays = paymentDaysMatch ? Number(paymentDaysMatch[0]) : 30
+
+      // Map delivery terms from form
+      const formDeliveryTerms = (data.skus[0]?.deliveryTerms || "").toLowerCase()
+      const deliveryTerms: "delivered" | "ex-works" = formDeliveryTerms.includes("exw") ? "ex-works" : "delivered"
+
+      // Create an offer for each tender SKU using form data
+      const newOffers: ExtendedOffer[] = tenderSkus.map((tenderSku, skuIdx) => {
+        // Try to match form SKU by number, otherwise use form data from the corresponding index or last item
+        const formSku = data.skus.find(
+          (s: any) => s.skuNumber && tenderSku.id.toLowerCase().includes(s.skuNumber.toLowerCase())
+        ) || data.skus[skuIdx] || data.skus[data.skus.length - 1]
+
+        const costPrice = Number(formSku?.unitPriceDDP) || tenderSku.currentCostPrice * 0.95
+        const saving = ((tenderSku.currentCostPrice - costPrice) / tenderSku.currentCostPrice) * 100
+
+        return {
+          id: `OFF${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          tenderId: selectedTenderId,
+          supplierId: matchedSupplier.id,
+          skuId: tenderSku.id,
+          round: nextRound,
+          submittedDate: new Date().toISOString().split("T")[0],
+          costPrice: Number(costPrice.toFixed(2)),
+          costPriceSaving: Number(saving.toFixed(1)),
+          additionalFunding: totalFunding > 0 ? Math.round(totalFunding / tenderSkus.length) : Math.round(2000 + Math.random() * 3000),
+          promotionChange: (["increased", "same", "same"] as const)[Math.floor(Math.random() * 3)],
+          promotionWeeks: Number(formSku?.promotionWeeks) || (6 + Math.floor(Math.random() * 8)),
+          deliveryTerms,
+          deliveryFrequency: formSku?.deliveryFrequency || "Weekly",
+          paymentDays,
+          specSame: true,
+          supplierAttractivenessScore: 70 + Math.floor(Math.random() * 25),
+          overallScore: 65 + Math.floor(Math.random() * 30),
+          fixedInvestment: Math.round(fixedInv / tenderSkus.length) || Math.round(1000 + Math.random() * 2000),
+          promotionalInvestment: Math.round(promoInv / tenderSkus.length) || Math.round(500 + Math.random() * 1500),
+          otherInvestment: Math.round(otherInv / tenderSkus.length) || Math.round(200 + Math.random() * 800),
+        }
+      })
+
+      toast.success("New offer added", {
+        description: `Round ${nextRound} for ${matchedSupplier.name} with ${newOffers.length} SKU${newOffers.length > 1 ? "s" : ""} added.`,
+      })
+
+      return [...prev, ...newOffers]
     })
   }
 
