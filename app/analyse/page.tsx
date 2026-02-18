@@ -570,19 +570,20 @@ export default function AnalyseOfferPage() {
                           e.target.value = ""
                           return
                         }
-                        // Generate mock data: pick a random supplier, create next round offers for all SKUs
+                        // Generate mock data: pick a random supplier, create a single new round for all SKUs
                         if (tenderSuppliers.length > 0 && tenderSkus.length > 0) {
                           const randomSupplier = tenderSuppliers[Math.floor(Math.random() * tenderSuppliers.length)]
-                          // Determine the current max round for this supplier
-                          const existingOffers = tenderOffers.filter((o) => o.supplierId === randomSupplier.id)
-                          const currentMaxRound = existingOffers.length > 0
-                            ? Math.max(...existingOffers.map((o) => o.round))
+                          // Determine the global max round across ALL offers in this tender
+                          const globalMaxRound = tenderOffers.length > 0
+                            ? Math.max(...tenderOffers.map((o) => o.round))
                             : 0
-                          const nextRound = currentMaxRound + 1
+                          const nextRound = globalMaxRound + 1
+                          // Get this supplier's existing offers for price improvement baseline
+                          const supplierOffers = tenderOffers.filter((o) => o.supplierId === randomSupplier.id)
                           // Create offers for all tender SKUs with slightly improved prices
                           const newOffers: ExtendedOffer[] = tenderSkus.map((sku) => {
-                            // Get previous best price or use current cost
-                            const prevOffers = existingOffers.filter((o) => o.skuId === sku.id)
+                            // Get previous best price for this supplier or use current cost
+                            const prevOffers = supplierOffers.filter((o) => o.skuId === sku.id)
                             const prevBestPrice = prevOffers.length > 0
                               ? Math.min(...prevOffers.map((o) => o.costPrice))
                               : sku.currentCostPrice
