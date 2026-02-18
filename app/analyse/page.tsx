@@ -226,16 +226,14 @@ export default function AnalyseOfferPage() {
     return data.sort((a, b) => b.totalSaving - a.totalSaving)
   }, [localOffers, selectedTenderId, tenderSkus, tenderSuppliers])
 
-  const maxRounds = 5
-
+  // Build round evolution from actual tenderOffers data
   const roundEvolutionData = useMemo((): (SupplierRoundEvolution & { isCurrent: boolean; hasOffer: boolean })[] => {
     return tenderSuppliers.map((supplier, sIdx) => {
       const isCurrent = sIdx === 0
       const supplierOffers = tenderOffers.filter((o) => o.supplierId === supplier.id)
-      const hasOffer = isCurrent ? supplierOffers.length > 0 : true
+      const hasOffer = supplierOffers.length > 0
 
-      // Current supplier with no offer gets empty rounds
-      if (isCurrent && !hasOffer) {
+      if (!hasOffer) {
         return {
           supplierId: supplier.id,
           supplierName: supplier.name,
@@ -245,24 +243,32 @@ export default function AnalyseOfferPage() {
         }
       }
 
-      // Each supplier has a different number of rounds (2-5)
-      const numRounds = Math.min(maxRounds, 2 + (sIdx % 4))
-      const baseValue = 50000 + sIdx * 8000
+      // Group offers by round and compute total investment per round
+      const roundMap = new Map<number, number>()
+      supplierOffers.forEach((o) => {
+        const investment = (o as ExtendedOffer).fixedInvestment || 0
+        const promo = (o as ExtendedOffer).promotionalInvestment || 0
+        const other = (o as ExtendedOffer).otherInvestment || 0
+        const total = investment + promo + other
+        roundMap.set(o.round, (roundMap.get(o.round) || 0) + total)
+      })
+
+      const sortedRoundNums = Array.from(roundMap.keys()).sort((a, b) => a - b)
       const rounds: RoundData[] = []
 
-      for (let r = 1; r <= numRounds; r++) {
-        const factor = 1 - r * (0.04 + (sIdx % 3) * 0.015) + (r === 3 ? -0.02 : 0)
-        const value = Math.round(baseValue * Math.max(factor, 0.7))
-        const prev = rounds.length > 0 ? rounds[rounds.length - 1].totalInvestment : value
+      sortedRoundNums.forEach((roundNum, i) => {
+        const value = roundMap.get(roundNum) || 0
+        const prev = i > 0 ? rounds[i - 1].totalInvestment : value
         const change = value - prev
         const pct = prev !== 0 ? (change / prev) * 100 : 0
         rounds.push({
-          round: r,
+          round: roundNum,
           totalInvestment: value,
           changeFromPrior: change,
-          changePercent: r === 1 ? 0 : pct,
+          changePercent: i === 0 ? 0 : pct,
         })
-      }
+      })
+
       return {
         supplierId: supplier.id,
         supplierName: supplier.name,
@@ -272,6 +278,12 @@ export default function AnalyseOfferPage() {
       }
     })
   }, [tenderSuppliers, tenderOffers])
+
+  // Compute max rounds across all suppliers for the evolution table header
+  const maxRounds = useMemo(() => {
+    if (tenderOffers.length === 0) return 5
+    return Math.max(5, Math.max(...tenderOffers.map((o) => o.round)))
+  }, [tenderOffers])
 
   // Best total saving - aligned with OfferComparison's formula (synthetic discount fallback for non-offered SKUs)
   const bestTotalSaving = useMemo(() => {
@@ -573,51 +585,52 @@ export default function AnalyseOfferPage() {
                         // Generate mock data: pick a random supplier, create a single new round for all SKUs
                         if (tenderSuppliers.length > 0 && tenderSkus.length > 0) {
                           const randomSupplier = tenderSuppliers[Math.floor(Math.random() * tenderSuppliers.length)]
-                          // Determine the global max round across ALL offers in this tender
-                          const globalMaxRound = tenderOffers.length > 0
-                            ? Math.max(...tenderOffers.map((o) => o.round))
-                            : 0
-                          const nextRound = globalMaxRound + 1
-                          // Get this supplier's existing offers for price improvement baseline
-                          const supplierOffers = tenderOffers.filter((o) => o.supplierId === randomSupplier.id)
-                          // Create offers for all tender SKUs with slightly improved prices
-                          const newOffers: ExtendedOffer[] = tenderSkus.map((sku) => {
-                            // Get previous best price for this supplier or use current cost
-                            const prevOffers = supplierOffers.filter((o) => o.skuId === sku.id)
-                            const prevBestPrice = prevOffers.length > 0
-                              ? Math.min(...prevOffers.map((o) => o.costPrice))
-                              : sku.currentCostPrice
-                            // Improve by 2-6%
-                            const improvement = 0.02 + Math.random() * 0.04
-                            const newPrice = Number((prevBestPrice * (1 - improvement)).toFixed(2))
-                            const saving = ((sku.currentCostPrice - newPrice) / sku.currentCostPrice) * 100
-                            const funding = Math.round(2000 + Math.random() * 4000)
-                            return {
-                              id: `OFF${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                              tenderId: selectedTenderId,
-                              supplierId: randomSupplier.id,
-                              skuId: sku.id,
-                              round: nextRound,
-                              submittedDate: new Date().toISOString().split("T")[0],
-                              costPrice: newPrice,
-                              costPriceSaving: Number(saving.toFixed(1)),
-                              additionalFunding: funding,
-                              promotionChange: (["increased", "same", "same"] as const)[Math.floor(Math.random() * 3)],
-                              promotionWeeks: 6 + Math.floor(Math.random() * 8),
-                              deliveryTerms: "delivered" as const,
-                              deliveryFrequency: (["Weekly", "2x weekly", "3x weekly"] as const)[Math.floor(Math.random() * 3)],
-                              paymentDays: [30, 45, 60][Math.floor(Math.random() * 3)],
-                              specSame: true,
-                              supplierAttractivenessScore: 70 + Math.floor(Math.random() * 25),
-                              overallScore: 65 + Math.floor(Math.random() * 30),
-                              fixedInvestment: Math.round(funding * 0.55),
-                              promotionalInvestment: Math.round(funding * 0.30),
-                              otherInvestment: Math.round(funding * 0.15),
-                            }
-                          })
-                          setLocalOffers((prev) => [...prev, ...newOffers])
-                          toast.success("New offer added", {
-                            description: `Round ${nextRound} offer from ${randomSupplier.name} for ${newOffers.length} SKU${newOffers.length > 1 ? "s" : ""} has been added.`,
+                          // Use functional update to compute nextRound from the latest state
+                          setLocalOffers((prev) => {
+                            const allTenderOffers = prev.filter((o) => o.tenderId === selectedTenderId)
+                            const globalMaxRound = allTenderOffers.length > 0
+                              ? Math.max(...allTenderOffers.map((o) => o.round))
+                              : 0
+                            const nextRound = globalMaxRound + 1
+                            // Get this supplier's existing offers for price improvement baseline
+                            const supplierOffers = allTenderOffers.filter((o) => o.supplierId === randomSupplier.id)
+                            // Create offers for all tender SKUs with slightly improved prices
+                            const newOffers: ExtendedOffer[] = tenderSkus.map((sku) => {
+                              const prevOffers = supplierOffers.filter((o) => o.skuId === sku.id)
+                              const prevBestPrice = prevOffers.length > 0
+                                ? Math.min(...prevOffers.map((o) => o.costPrice))
+                                : sku.currentCostPrice
+                              const improvement = 0.02 + Math.random() * 0.04
+                              const newPrice = Number((prevBestPrice * (1 - improvement)).toFixed(2))
+                              const saving = ((sku.currentCostPrice - newPrice) / sku.currentCostPrice) * 100
+                              const funding = Math.round(2000 + Math.random() * 4000)
+                              return {
+                                id: `OFF${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                                tenderId: selectedTenderId,
+                                supplierId: randomSupplier.id,
+                                skuId: sku.id,
+                                round: nextRound,
+                                submittedDate: new Date().toISOString().split("T")[0],
+                                costPrice: newPrice,
+                                costPriceSaving: Number(saving.toFixed(1)),
+                                additionalFunding: funding,
+                                promotionChange: (["increased", "same", "same"] as const)[Math.floor(Math.random() * 3)],
+                                promotionWeeks: 6 + Math.floor(Math.random() * 8),
+                                deliveryTerms: "delivered" as const,
+                                deliveryFrequency: (["Weekly", "2x weekly", "3x weekly"] as const)[Math.floor(Math.random() * 3)],
+                                paymentDays: [30, 45, 60][Math.floor(Math.random() * 3)],
+                                specSame: true,
+                                supplierAttractivenessScore: 70 + Math.floor(Math.random() * 25),
+                                overallScore: 65 + Math.floor(Math.random() * 30),
+                                fixedInvestment: Math.round(funding * 0.55),
+                                promotionalInvestment: Math.round(funding * 0.30),
+                                otherInvestment: Math.round(funding * 0.15),
+                              }
+                            })
+                            toast.success("New offer added", {
+                              description: `Round ${nextRound} offer from ${randomSupplier.name} for ${newOffers.length} SKU${newOffers.length > 1 ? "s" : ""} has been added.`,
+                            })
+                            return [...prev, ...newOffers]
                           })
                         }
                         e.target.value = ""
