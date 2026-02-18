@@ -286,32 +286,73 @@ export default function AnalyseOfferPage() {
     return Math.max(5, Math.max(...tenderOffers.map((o) => o.round)))
   }, [tenderOffers])
 
-  // Best total saving - aligned with OfferComparison's formula (synthetic discount fallback for non-offered SKUs)
+  // Best total saving - shows the saving of the recommended supplier (highest overall score)
+  // Mirrors OfferComparison's computeOverallScore logic exactly
   const bestTotalSaving = useMemo(() => {
     if (tenderSuppliers.length === 0 || tenderSkus.length === 0) return null
     const baselineSpend = tenderSkus.reduce((sum, sku) => sum + sku.currentCostPrice * sku.weeklyVolume * 52, 0)
-    let best: { supplierName: string; totalSaving: number } | null = null
-    tenderSuppliers.forEach((supplier, idx) => {
+
+    // Build per-supplier savings data (same formula as OfferComparison comparisonData)
+    const supplierData = tenderSuppliers.map((supplier, idx) => {
       const supplierOffers = tenderOffers.filter((o) => o.supplierId === supplier.id)
-      // Skip suppliers with no offers at all
-      if (supplierOffers.length === 0) return
+      const hasOffers = supplierOffers.length > 0
+      const latestRound = hasOffers ? Math.max(...supplierOffers.map((o) => o.round)) : 0
+      const latestRoundOffers = supplierOffers.filter((o) => o.round === latestRound)
+
       let annualSpend = 0
       tenderSkus.forEach((sku) => {
-        // Get latest round offer for this SKU
-        const skuOffers = supplierOffers.filter((o) => o.skuId === sku.id)
-        const latestOffer = skuOffers.length > 0
-          ? skuOffers.reduce((a, b) => (b.round > a.round ? b : a))
-          : null
-        // Match OfferComparison: use synthetic discount fallback for non-offered SKUs
-        const price = latestOffer ? latestOffer.costPrice : sku.currentCostPrice * (1 - 0.02 * (idx + 1))
+        const skuOffer = latestRoundOffers.find((o) => o.skuId === sku.id)
+        const price = skuOffer ? skuOffer.costPrice : sku.currentCostPrice * (1 - 0.02 * (idx + 1))
         annualSpend += price * sku.weeklyVolume * 52
       })
-      const saving = baselineSpend - annualSpend
-      if (!best || saving > best.totalSaving) {
-        best = { supplierName: supplier.name, totalSaving: saving }
+      const totalSaving = baselineSpend - annualSpend
+
+      // Replicate the scoring weights from OfferComparison's computeOverallScore
+      // Savings: 55%, Supply: 12%, Specifications: 10%, Product: 8%, Operational/SupplyChain/ESG: 5% each
+      const deliveryFreq = latestRoundOffers[0]?.deliveryFrequency || "Weekly"
+      const leadTime = deliveryFreq === "Daily" ? 3 : deliveryFreq === "4x weekly" ? 5 : deliveryFreq === "3x weekly" ? 7 : deliveryFreq === "2x weekly" ? 10 : 14
+      const supplyScore = leadTime <= 3 ? 5 : leadTime <= 5 ? 4 : leadTime <= 7 ? 3 : leadTime <= 10 ? 2 : 1
+      const hasHighRating = supplier.reliabilityScore >= 93
+      const hasBrcA = supplier.accreditation?.brcGrade === "A" || supplier.accreditation?.brcGrade === "AA"
+      const allSpecsSame = latestRoundOffers.length > 0 ? latestRoundOffers.every((o) => o.specSame) : false
+      const specificationsScore = hasBrcA && hasHighRating ? 5 : hasBrcA || hasHighRating ? 4 : supplier.reliabilityScore >= 85 ? 3 : 2
+      const productScore = allSpecsSame ? 4 : 3
+      const isDomestic = supplier.country === "United Kingdom"
+      const operationalScore = isDomestic && hasHighRating ? 5 : isDomestic ? 4 : hasHighRating ? 3 : 2
+      const hasDelivered = latestRoundOffers.length > 0 && latestRoundOffers.every((o) => o.deliveryTerms === "delivered")
+      const supplyChainScore = hasDelivered && hasBrcA ? 5 : hasDelivered ? 4 : hasBrcA ? 3 : 2
+      const hasCerts = (supplier.accreditation?.certifications?.length || 0) >= 2
+      const esgScore = hasCerts && hasHighRating ? 5 : hasCerts ? 4 : hasHighRating ? 3 : 2
+
+      return { supplierName: supplier.name, totalSaving: Math.round(totalSaving), hasOffer: hasOffers,
+        supplyScore, specificationsScore, productScore, operationalScore, supplyChainScore, esgScore }
+    })
+
+    // Compute relative savings norm (same as computeOverallScore)
+    const offerSuppliers = supplierData.filter((s) => s.hasOffer)
+    if (offerSuppliers.length === 0) return null
+    const maxSaving = Math.max(...offerSuppliers.map((s) => s.totalSaving), 1)
+    const minSaving = Math.min(...offerSuppliers.map((s) => s.totalSaving), 0)
+    const range = maxSaving - minSaving || 1
+
+    let recommended: { supplierName: string; totalSaving: number; score: number } | null = null
+    supplierData.forEach((s) => {
+      if (!s.hasOffer) return
+      const savingsNorm = 0.05 + 0.95 * ((s.totalSaving - minSaving) / range)
+      const weighted =
+        savingsNorm * 55 +
+        (s.supplyScore / 5) * 12 +
+        (s.specificationsScore / 5) * 10 +
+        (s.productScore / 5) * 8 +
+        (s.operationalScore / 5) * 5 +
+        (s.supplyChainScore / 5) * 5 +
+        (s.esgScore / 5) * 5
+      const score = Math.round(weighted)
+      if (!recommended || score > recommended.score) {
+        recommended = { supplierName: s.supplierName, totalSaving: s.totalSaving, score }
       }
     })
-    return best
+    return recommended ? { supplierName: recommended.supplierName, totalSaving: recommended.totalSaving } : null
   }, [tenderSuppliers, tenderSkus, tenderOffers])
 
   const handleOfferSubmit = (data: { qualification: any; skus: any[]; investment?: any }) => {
