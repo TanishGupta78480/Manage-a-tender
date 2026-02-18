@@ -272,12 +272,12 @@ export default function AnalyseOfferPage() {
     })
   }, [tenderSuppliers, tenderOffers])
 
-  // Best total saving - use same formula as comparison cards (baselineSpend - annualSpend)
+  // Best total saving - aligned with OfferComparison's formula (synthetic discount fallback for non-offered SKUs)
   const bestTotalSaving = useMemo(() => {
     if (tenderSuppliers.length === 0 || tenderSkus.length === 0) return null
     const baselineSpend = tenderSkus.reduce((sum, sku) => sum + sku.currentCostPrice * sku.weeklyVolume * 52, 0)
     let best: { supplierName: string; totalSaving: number } | null = null
-    tenderSuppliers.forEach((supplier) => {
+    tenderSuppliers.forEach((supplier, idx) => {
       const supplierOffers = tenderOffers.filter((o) => o.supplierId === supplier.id)
       // Skip suppliers with no offers at all
       if (supplierOffers.length === 0) return
@@ -288,18 +288,11 @@ export default function AnalyseOfferPage() {
         const latestOffer = skuOffers.length > 0
           ? skuOffers.reduce((a, b) => (b.round > a.round ? b : a))
           : null
-        // Use offer price if available, otherwise use current baseline (no saving on that SKU)
-        const price = latestOffer ? latestOffer.costPrice : sku.currentCostPrice
+        // Match OfferComparison: use synthetic discount fallback for non-offered SKUs
+        const price = latestOffer ? latestOffer.costPrice : sku.currentCostPrice * (1 - 0.02 * (idx + 1))
         annualSpend += price * sku.weeklyVolume * 52
       })
-      // Include supplier funding in total saving (additionalFunding is the per-SKU annual funding field)
-      const latestRoundOffers = tenderSkus.map((sku) => {
-        const skuOffers = supplierOffers.filter((o) => o.skuId === sku.id)
-        return skuOffers.length > 0 ? skuOffers.reduce((a, b) => (b.round > a.round ? b : a)) : null
-      }).filter(Boolean) as typeof supplierOffers
-      const totalFunding = latestRoundOffers.reduce((sum, o) => sum + (o.additionalFunding || 0), 0)
-      const costSaving = baselineSpend - annualSpend
-      const saving = costSaving + totalFunding
+      const saving = baselineSpend - annualSpend
       if (!best || saving > best.totalSaving) {
         best = { supplierName: supplier.name, totalSaving: saving }
       }
@@ -562,13 +555,63 @@ export default function AnalyseOfferPage() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".xlsx,.xls,.csv"
+                    accept=".xlsx,.xls"
                     className="hidden"
                     onChange={(e) => {
                       const file = e.target.files?.[0]
                       if (file) {
-                        // TODO: parse uploaded file and add offers
-                        alert(`File "${file.name}" uploaded successfully. Parsing will be implemented.`)
+                        // Validate Excel file
+                        const ext = file.name.split(".").pop()?.toLowerCase()
+                        if (ext !== "xlsx" && ext !== "xls") {
+                          e.target.value = ""
+                          return
+                        }
+                        // Generate mock data: pick a random supplier, create next round offers for all SKUs
+                        if (tenderSuppliers.length > 0 && tenderSkus.length > 0) {
+                          const randomSupplier = tenderSuppliers[Math.floor(Math.random() * tenderSuppliers.length)]
+                          // Determine the current max round for this supplier
+                          const existingOffers = tenderOffers.filter((o) => o.supplierId === randomSupplier.id)
+                          const currentMaxRound = existingOffers.length > 0
+                            ? Math.max(...existingOffers.map((o) => o.round))
+                            : 0
+                          const nextRound = currentMaxRound + 1
+                          // Create offers for all tender SKUs with slightly improved prices
+                          const newOffers: ExtendedOffer[] = tenderSkus.map((sku) => {
+                            // Get previous best price or use current cost
+                            const prevOffers = existingOffers.filter((o) => o.skuId === sku.id)
+                            const prevBestPrice = prevOffers.length > 0
+                              ? Math.min(...prevOffers.map((o) => o.costPrice))
+                              : sku.currentCostPrice
+                            // Improve by 2-6%
+                            const improvement = 0.02 + Math.random() * 0.04
+                            const newPrice = Number((prevBestPrice * (1 - improvement)).toFixed(2))
+                            const saving = ((sku.currentCostPrice - newPrice) / sku.currentCostPrice) * 100
+                            const funding = Math.round(2000 + Math.random() * 4000)
+                            return {
+                              id: `OFF${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                              tenderId: selectedTenderId,
+                              supplierId: randomSupplier.id,
+                              skuId: sku.id,
+                              round: nextRound,
+                              submittedDate: new Date().toISOString().split("T")[0],
+                              costPrice: newPrice,
+                              costPriceSaving: Number(saving.toFixed(1)),
+                              additionalFunding: funding,
+                              promotionChange: (["increased", "same", "same"] as const)[Math.floor(Math.random() * 3)],
+                              promotionWeeks: 6 + Math.floor(Math.random() * 8),
+                              deliveryTerms: "delivered" as const,
+                              deliveryFrequency: (["Weekly", "2x weekly", "3x weekly"] as const)[Math.floor(Math.random() * 3)],
+                              paymentDays: [30, 45, 60][Math.floor(Math.random() * 3)],
+                              specSame: true,
+                              supplierAttractivenessScore: 70 + Math.floor(Math.random() * 25),
+                              overallScore: 65 + Math.floor(Math.random() * 30),
+                              fixedInvestment: Math.round(funding * 0.55),
+                              promotionalInvestment: Math.round(funding * 0.30),
+                              otherInvestment: Math.round(funding * 0.15),
+                            }
+                          })
+                          setLocalOffers((prev) => [...prev, ...newOffers])
+                        }
                         e.target.value = ""
                       }
                     }}
