@@ -25,6 +25,8 @@ import {
   ChevronRight,
   Paperclip,
 } from "lucide-react"
+import jsPDF from "jspdf"
+import autoTable from "jspdf-autotable"
 
 // =============================================
 // TYPES
@@ -122,65 +124,286 @@ export function GenerateContractModal({ open, onClose, supplier }: GenerateContr
   }, [])
 
   const handleDownload = useCallback(() => {
-    // Build a text representation for the contract PDF
-    const lines: string[] = []
-    lines.push("=" .repeat(60))
-    lines.push("SUPPLY AGREEMENT CONTRACT")
-    lines.push("=" .repeat(60))
-    lines.push("")
-    lines.push(`Supplier: ${form.supplierLegalName || supplier?.supplierName || ""}`)
-    lines.push(`Contract Period: ${form.contractStart} to ${form.contractEnd}`)
-    lines.push(`Break Clause: ${form.breakClauseDate || "N/A"}`)
-    lines.push(`Notice Period: ${form.noticePeriod} days`)
-    lines.push(`Payment Terms: ${form.paymentDays} days`)
-    lines.push("")
-    lines.push("-".repeat(60))
-    lines.push("DELIVERY & ORDER DETAILS")
-    lines.push("-".repeat(60))
-    lines.push(form.deliveryDetails || "As per standard terms")
-    lines.push(form.orderDetails || "")
-    lines.push("")
-    if (form.cpiLinked) {
-      lines.push("-".repeat(60))
-      lines.push("CPI-LINKED CLAUSE")
-      lines.push("-".repeat(60))
-      lines.push(`Commodity: ${form.cpiCommodity}`)
-      lines.push(`Cap: ${form.cpiCap}%`)
-      lines.push(`Collar: ${form.cpiCollar}%`)
-      lines.push("")
-    }
-    lines.push("-".repeat(60))
-    lines.push("CONTRACT OPTIONS")
-    lines.push("-".repeat(60))
-    lines.push(`Duration: ${form.duration}`)
-    lines.push(`Pricing: ${form.pricing}`)
-    lines.push("")
-    lines.push("-".repeat(60))
-    lines.push("APPENDIX: COST PRICES & SUPPLIER FUNDING")
-    lines.push("-".repeat(60))
-    lines.push(`Total Saving: GBP ${Math.abs(supplier?.totalSaving || 0).toLocaleString()}`)
-    lines.push(`Fixed Investment: GBP ${(supplier?.fixedInvestment || 0).toLocaleString()}`)
-    lines.push(`Promotional Investment: GBP ${(supplier?.promotionalInvestment || 0).toLocaleString()}`)
-    lines.push(`Other Investment: GBP ${(supplier?.otherInvestment || 0).toLocaleString()}`)
-    lines.push("")
-    if (supplier?.skuDetails) {
-      lines.push("SKU Cost Breakdown:")
-      lines.push("SKU Name | Unit Price | Volume | Annual Spend | Saving")
-      supplier.skuDetails.forEach((sku) => {
-        lines.push(`${sku.skuName} | GBP ${sku.costPrice.toFixed(2)} | ${sku.volume.toLocaleString()} | GBP ${sku.annualSpend.toLocaleString()} | GBP ${Math.abs(sku.saving).toLocaleString()}`)
-      })
-    }
-    lines.push("")
-    lines.push("EXIT RATIONALE")
-    lines.push(form.exitRationale || "N/A")
+    if (!supplier) return
 
-    const blob = new Blob([lines.join("\n")], { type: "application/pdf" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `contract-${supplier?.supplierName?.replace(/\s+/g, "-").toLowerCase() || "supplier"}.pdf`
-    a.click()
-    URL.revokeObjectURL(url)
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" })
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const margin = 18
+    const contentWidth = pageWidth - margin * 2
+    let y = 20
+
+    const supplierDisplayName = form.supplierLegalName || supplier.supplierName || "Supplier"
+    const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
+
+    // -- Helper functions --
+    const addPageIfNeeded = (needed: number) => {
+      if (y + needed > doc.internal.pageSize.getHeight() - 20) {
+        doc.addPage()
+        y = 20
+      }
+    }
+
+    const drawHr = () => {
+      doc.setDrawColor(180, 180, 180)
+      doc.setLineWidth(0.3)
+      doc.line(margin, y, pageWidth - margin, y)
+      y += 4
+    }
+
+    const sectionTitle = (title: string) => {
+      addPageIfNeeded(16)
+      y += 4
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(12)
+      doc.setTextColor(30, 60, 160)
+      doc.text(title, margin, y)
+      y += 2
+      drawHr()
+    }
+
+    const labelValue = (label: string, value: string, indent = 0) => {
+      addPageIfNeeded(8)
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(9)
+      doc.setTextColor(80, 80, 80)
+      doc.text(label, margin + indent, y)
+      doc.setFont("helvetica", "normal")
+      doc.setTextColor(30, 30, 30)
+      doc.text(value || "N/A", margin + indent + 50, y)
+      y += 6
+    }
+
+    const bodyText = (text: string, indent = 0) => {
+      addPageIfNeeded(10)
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(9)
+      doc.setTextColor(50, 50, 50)
+      const lines = doc.splitTextToSize(text || "N/A", contentWidth - indent)
+      doc.text(lines, margin + indent, y)
+      y += lines.length * 4.5 + 2
+    }
+
+    // ========================================
+    // COVER / HEADER
+    // ========================================
+    doc.setFillColor(30, 60, 160)
+    doc.rect(0, 0, pageWidth, 50, "F")
+
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(22)
+    doc.setTextColor(255, 255, 255)
+    doc.text("SUPPLY AGREEMENT", margin, 24)
+
+    doc.setFont("helvetica", "normal")
+    doc.setFontSize(11)
+    doc.text(`${supplierDisplayName}`, margin, 34)
+
+    doc.setFontSize(9)
+    doc.setTextColor(200, 210, 255)
+    doc.text(`Generated: ${today}  |  CONFIDENTIAL`, margin, 43)
+
+    y = 60
+
+    // ========================================
+    // 1. PARTIES & CONTRACT DETAILS
+    // ========================================
+    sectionTitle("1. Parties & Contract Details")
+
+    labelValue("Supplier:", supplierDisplayName)
+    labelValue("Buyer:", "True North Procurement Ltd")
+    labelValue("Contract Start:", form.contractStart ? new Date(form.contractStart).toLocaleDateString("en-GB") : "TBC")
+    labelValue("Contract End:", form.contractEnd ? new Date(form.contractEnd).toLocaleDateString("en-GB") : "TBC")
+    labelValue("Break Clause:", form.breakClauseDate ? new Date(form.breakClauseDate).toLocaleDateString("en-GB") : "N/A")
+    labelValue("Notice Period:", `${form.noticePeriod || "90"} days`)
+    labelValue("Payment Terms:", `Net ${form.paymentDays || "30"} days`)
+
+    // ========================================
+    // 2. COMMERCIAL SUMMARY
+    // ========================================
+    sectionTitle("2. Commercial Summary")
+
+    const totalSaving = Math.abs(supplier.totalSaving || 0)
+    const annualSpend = supplier.annualSpend || 0
+    const fixedInv = supplier.fixedInvestment || 0
+    const promoInv = supplier.promotionalInvestment || 0
+    const otherInv = supplier.otherInvestment || 0
+    const totalInv = fixedInv + promoInv + otherInv
+
+    labelValue("Total Saving:", `\u00A3${totalSaving.toLocaleString()}`)
+    labelValue("Annual Spend:", `\u00A3${annualSpend.toLocaleString()}`)
+    labelValue("Delivery Freq.:", supplier.deliveryFrequency || "As agreed")
+    y += 2
+
+    // Investment breakdown mini-table
+    addPageIfNeeded(24)
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [["Investment Type", "Amount (GBP)"]],
+      body: [
+        ["Fixed Investment", `\u00A3${fixedInv.toLocaleString()}`],
+        ["Promotional Investment", `\u00A3${promoInv.toLocaleString()}`],
+        ["Other Investment", `\u00A3${otherInv.toLocaleString()}`],
+        ["Total Investment", `\u00A3${totalInv.toLocaleString()}`],
+      ],
+      theme: "grid",
+      headStyles: { fillColor: [30, 60, 160], fontSize: 8, fontStyle: "bold" },
+      bodyStyles: { fontSize: 8 },
+      alternateRowStyles: { fillColor: [245, 247, 255] },
+      styles: { cellPadding: 2.5 },
+    })
+    y = (doc as any).lastAutoTable.finalY + 8
+
+    // ========================================
+    // 3. DELIVERY & ORDER DETAILS
+    // ========================================
+    sectionTitle("3. Delivery & Order Details")
+    bodyText(form.deliveryDetails || "Delivery Duty Paid (DDP) to all designated distribution sites. Standard delivery windows apply Monday to Friday. Supplier to provide advance shipping notices for all consignments.")
+    y += 2
+    if (form.orderDetails) {
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(9)
+      doc.setTextColor(80, 80, 80)
+      doc.text("Order Details:", margin, y)
+      y += 5
+      bodyText(form.orderDetails)
+    }
+
+    // ========================================
+    // 4. CPI-LINKED CLAUSE
+    // ========================================
+    sectionTitle("4. Price Adjustment Mechanism")
+    if (form.cpiLinked) {
+      bodyText("This contract includes a CPI-linked pricing adjustment mechanism subject to the following parameters:")
+      const commodityLabel = form.cpiCommodity ? form.cpiCommodity.charAt(0).toUpperCase() + form.cpiCommodity.slice(1).replace(/-/g, " ") : "N/A"
+      labelValue("Linked Commodity:", commodityLabel, 2)
+      labelValue("Cap (max increase):", form.cpiCap ? `${form.cpiCap}%` : "N/A", 2)
+      labelValue("Collar (max decrease):", form.cpiCollar ? `${form.cpiCollar}%` : "N/A", 2)
+      bodyText("Adjustments shall be reviewed quarterly against the applicable commodity index. Any adjustment exceeding the cap/collar shall require mutual written agreement.")
+    } else {
+      bodyText("Prices are fixed for the duration of the contract. No CPI-linked adjustments apply. Any price changes require formal contract amendment signed by both parties.")
+    }
+
+    // ========================================
+    // 5. CONTRACT OPTIONS
+    // ========================================
+    sectionTitle("5. Contract Options")
+    const durationLabels: Record<string, string> = {
+      "fixed-12": "Fixed 12 Months",
+      "fixed-24": "Fixed 24 Months",
+      "volume-based": "Volume Based",
+    }
+    const pricingLabels: Record<string, string> = {
+      "fixed": "Fixed Pricing",
+      "index": "Index-Linked",
+      "open-book": "Open Book",
+    }
+    labelValue("Duration:", durationLabels[form.duration] || form.duration || "TBC")
+    labelValue("Pricing Model:", pricingLabels[form.pricing] || form.pricing || "TBC")
+
+    // ========================================
+    // 6. EXIT / TERMINATION
+    // ========================================
+    sectionTitle("6. Termination & Exit Rationale")
+    bodyText(form.exitRationale || "Either party may terminate this agreement by providing written notice in accordance with the notice period specified above. Termination for cause (material breach, insolvency) may be effected immediately upon written notice.")
+
+    // ========================================
+    // 7. APPENDIX -- SKU COST BREAKDOWN
+    // ========================================
+    sectionTitle("Appendix A: SKU Cost Prices & Annual Spend")
+
+    if (supplier.skuDetails && supplier.skuDetails.length > 0) {
+      addPageIfNeeded(30)
+      autoTable(doc, {
+        startY: y,
+        margin: { left: margin, right: margin },
+        head: [["SKU", "Unit Price (GBP)", "Weekly Volume", "Annual Spend (GBP)", "Saving (GBP)"]],
+        body: supplier.skuDetails.map((sku) => [
+          sku.skuName,
+          `\u00A3${sku.costPrice.toFixed(2)}`,
+          sku.volume.toLocaleString(),
+          `\u00A3${sku.annualSpend.toLocaleString()}`,
+          `${sku.saving >= 0 ? "+" : ""}\u00A3${Math.abs(sku.saving).toLocaleString()}`,
+        ]),
+        theme: "grid",
+        headStyles: { fillColor: [30, 60, 160], fontSize: 8, fontStyle: "bold" },
+        bodyStyles: { fontSize: 8 },
+        alternateRowStyles: { fillColor: [245, 247, 255] },
+        styles: { cellPadding: 2.5 },
+        columnStyles: {
+          1: { halign: "right" },
+          2: { halign: "right" },
+          3: { halign: "right" },
+          4: { halign: "right" },
+        },
+      })
+      y = (doc as any).lastAutoTable.finalY + 8
+    } else {
+      bodyText("No SKU-level cost data available. Detailed pricing to be appended upon finalisation.")
+    }
+
+    // ========================================
+    // SIGNATURE BLOCK
+    // ========================================
+    addPageIfNeeded(50)
+    sectionTitle("Signatures")
+
+    y += 4
+    doc.setFont("helvetica", "normal")
+    doc.setFontSize(9)
+    doc.setTextColor(50, 50, 50)
+
+    // Buyer side
+    doc.text("For and on behalf of the Buyer:", margin, y)
+    y += 14
+    doc.setDrawColor(150, 150, 150)
+    doc.line(margin, y, margin + 65, y)
+    y += 5
+    doc.setFontSize(8)
+    doc.text("Name:", margin, y)
+    y += 5
+    doc.line(margin, y, margin + 65, y)
+    y += 5
+    doc.text("Title:", margin, y)
+    y += 5
+    doc.line(margin, y, margin + 65, y)
+    y += 5
+    doc.text("Date:", margin, y)
+
+    // Supplier side
+    let sigY = y - 34
+    const rightCol = pageWidth / 2 + 10
+    doc.setFontSize(9)
+    doc.text(`For and on behalf of ${supplierDisplayName}:`, rightCol, sigY)
+    sigY += 14
+    doc.line(rightCol, sigY, rightCol + 65, sigY)
+    sigY += 5
+    doc.setFontSize(8)
+    doc.text("Name:", rightCol, sigY)
+    sigY += 5
+    doc.line(rightCol, sigY, rightCol + 65, sigY)
+    sigY += 5
+    doc.text("Title:", rightCol, sigY)
+    sigY += 5
+    doc.line(rightCol, sigY, rightCol + 65, sigY)
+    sigY += 5
+    doc.text("Date:", rightCol, sigY)
+
+    // ========================================
+    // FOOTER on every page
+    // ========================================
+    const totalPages = doc.getNumberOfPages()
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p)
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(7)
+      doc.setTextColor(160, 160, 160)
+      const pageH = doc.internal.pageSize.getHeight()
+      doc.text(`CONFIDENTIAL -- Supply Agreement -- ${supplierDisplayName}`, margin, pageH - 8)
+      doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin - 20, pageH - 8)
+    }
+
+    doc.save(`contract-${supplier.supplierName?.replace(/\s+/g, "-").toLowerCase() || "supplier"}.pdf`)
   }, [form, supplier])
 
   const handleExcelDownload = useCallback(() => {
